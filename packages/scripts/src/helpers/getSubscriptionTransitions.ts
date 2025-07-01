@@ -10,7 +10,10 @@ export interface SubscriptionTransitions {
     automaticStarterToPro: number;
   };
   downgrades: {
-    scheduledForCancellation: number;
+    scheduledForCancellation: {
+      starter: number;
+      pro: number;
+    };
     cancellationRemoved: {
       starter: number;
       pro: number;
@@ -34,7 +37,10 @@ export const getSubscriptionTransitions =
         automaticStarterToPro: 0,
       },
       downgrades: {
-        scheduledForCancellation: 0,
+        scheduledForCancellation: {
+          starter: 0,
+          pro: 0,
+        },
         cancellationRemoved: {
           starter: 0,
           pro: 0,
@@ -49,15 +55,17 @@ export const getSubscriptionTransitions =
       const subscriptionUpdatedQuery = `
       SELECT 
         JSONExtractString(properties, 'prevPlan') as prevPlan,
-        JSONExtractString(properties, 'plan') as plan
+        JSONExtractString(properties, 'plan') as plan,
+        events.$group_1 as workspace
       FROM events
       WHERE event = 'Subscription updated'
       AND toDate(timestamp) = toDate(now() - INTERVAL 1 DAY)
+      GROUP BY events.$group_1, JSONExtractString(properties, 'prevPlan'), JSONExtractString(properties, 'plan')
     `;
 
       // Query for "Subscription automatically updated" events (only STARTER -> PRO)
       const subscriptionAutoUpdatedQuery = `
-      SELECT COUNT(*) as count
+      SELECT COUNT(DISTINCT events.$group_1) as count
       FROM events
       WHERE event = 'Subscription automatically updated'
       AND JSONExtractString(properties, 'plan') = 'PRO'
@@ -66,18 +74,22 @@ export const getSubscriptionTransitions =
 
       // Query for "Subscription scheduled for cancellation" events
       const subscriptionScheduledForCancellationQuery = `
-      SELECT COUNT(*) as count
+      SELECT JSONExtractString(properties, 'plan') as plan,
+             events.$group_1 as workspace
       FROM events
       WHERE event = 'Subscription scheduled for cancellation'
       AND toDate(timestamp) = toDate(now() - INTERVAL 1 DAY)
+      GROUP BY events.$group_1, JSONExtractString(properties, 'plan')
     `;
 
       // Query for "Subscription cancellation removed" events
       const subscriptionCancellationRemovedQuery = `
-      SELECT JSONExtractString(properties, 'plan') as plan
+      SELECT JSONExtractString(properties, 'plan') as plan,
+             events.$group_1 as workspace
       FROM events
       WHERE event = 'Subscription cancellation removed'
       AND toDate(timestamp) = toDate(now() - INTERVAL 1 DAY)
+      GROUP BY events.$group_1, JSONExtractString(properties, 'plan')
     `;
 
       const [
@@ -113,12 +125,14 @@ export const getSubscriptionTransitions =
         typeof autoStarterToProCount === "number" ? autoStarterToProCount : 0;
 
       // Process "Subscription scheduled for cancellation" events
-      const scheduledForCancellationCount =
-        scheduledForCancellationResponse.results?.[0]?.[0] ?? 0;
-      transitions.downgrades.scheduledForCancellation =
-        typeof scheduledForCancellationCount === "number"
-          ? scheduledForCancellationCount
-          : 0;
+      for (const row of scheduledForCancellationResponse.results) {
+        const plan = String(row[0]);
+        if (plan === Plan.STARTER) {
+          transitions.downgrades.scheduledForCancellation.starter++;
+        } else if (plan === Plan.PRO) {
+          transitions.downgrades.scheduledForCancellation.pro++;
+        }
+      }
 
       // Process "Subscription cancellation removed" events
       for (const row of cancellationRemovedResponse.results) {
