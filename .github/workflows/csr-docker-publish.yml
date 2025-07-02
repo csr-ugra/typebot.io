@@ -1,5 +1,9 @@
 name: Build and Push Docker Images to csr-urga GHCR
 
+permissions:
+  packages: write
+  contents: read
+  
 on:
   push:
     branches:
