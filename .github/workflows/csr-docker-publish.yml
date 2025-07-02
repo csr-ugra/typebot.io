@@ -1,0 +1,36 @@
+name: Build and Push Docker Images to csr-urga GHCR
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push typebot-builder
+        run: |
+          DATE=$(date +%Y%m%d)
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          TAG="${DATE}-${SHORT_SHA}"
+          docker build -t ghcr.io/${{ github.repository_owner }}/typebot-builder:$TAG --build-arg SCOPE=builder .
+          docker push ghcr.io/${{ github.repository_owner }}/typebot-builder:$TAG
+
+      - name: Build and push typebot-viewer
+        run: |
+          DATE=$(date +%Y%m%d)
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          TAG="${DATE}-${SHORT_SHA}"
+          docker build -t ghcr.io/${{ github.repository_owner }}/typebot-viewer:$TAG --build-arg SCOPE=viewer .
+          docker push ghcr.io/${{ github.repository_owner }}/typebot-viewer:$TAG
